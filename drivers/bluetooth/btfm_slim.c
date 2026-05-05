@@ -119,6 +119,12 @@ int btfm_slim_enable_ch(struct btfmslim *btfmslim, struct btfmslim_ch *ch,
 
 	BTFMSLIM_DBG("port: %d ch: %d", ch->port, ch->ch);
 
+	if (chan->dai.sconfig.chs) {
+		BTFMSLIM_DBG("chs already allocated, freeing to handle re-init race");
+		kfree(chan->dai.sconfig.chs);
+		chan->dai.sconfig.chs = NULL;
+	}
+
 	chan->dai.sruntime = slim_stream_allocate(btfmslim->slim_pgd, "BTFM_SLIM");
 	if (chan->dai.sruntime == NULL) {
 		BTFMSLIM_ERR("slim_stream_allocate failed");
@@ -128,7 +134,7 @@ int btfm_slim_enable_ch(struct btfmslim *btfmslim, struct btfmslim_ch *ch,
 	chan->dai.sconfig.direction = btfmslim->direction;
 	chan->dai.sconfig.rate = rates;
 	chan->dai.sconfig.ch_count = nchan;
-	chan->dai.sconfig.chs = kcalloc(nchan, sizeof(unsigned int), GFP_KERNEL);
+	chan->dai.sconfig.chs = kzalloc(nchan * sizeof(unsigned int), GFP_KERNEL);
 	if (!chan->dai.sconfig.chs)
 		return -ENOMEM;
 
@@ -196,8 +202,6 @@ int btfm_slim_enable_ch(struct btfmslim *btfmslim, struct btfmslim_ch *ch,
 error:
 	BTFMSLIM_INFO("error %d while opening port, btfm_num_ports_open: %d",
 			ret, btfm_num_ports_open);
-	kfree(chan->dai.sconfig.chs);
-	chan->dai.sconfig.chs = NULL;
 	return ret;
 }
 
@@ -215,6 +219,11 @@ int btfm_slim_disable_ch(struct btfmslim *btfmslim, struct btfmslim_ch *ch,
 	if (ch->dai.sruntime == NULL) {
 		BTFMSLIM_ERR("Channel not enabled yet. returning");
 		return -EINVAL;
+	}
+
+	if (ch->dai.sconfig.chs == NULL) {
+		BTFMSLIM_INFO("ch->dai.sconfig.chs is NULL, skipping dealloc");
+		goto decrement_ports;
 	}
 
 	btfm_is_port_opening_delayed = false;
